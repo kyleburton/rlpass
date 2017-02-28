@@ -3,14 +3,17 @@ package main
 import (
 	"fmt"
 	"github.com/urfave/cli"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	_ "syscall"
+	"path"
+	"strings"
 )
 
 type LPass struct {
 	Username string
+	Cachedir string
 }
 
 func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
@@ -66,28 +69,132 @@ func (self *LPass) Login(args []string) (*exec.Cmd, error) {
 
 func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	// ls --format=""
-	childProc, err := self.Exec(append([]string{"ls", "--format=%/ai	%/an	%/aN	%/au	%/ap	%/am	%/aU	%/as	%/ag"}))
-	if err != nil {
-		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
-		return nil, err
+	// TODO: add args into the cached file name (even if we sha everything)
+	// TODO: need support for turning this off & on
+	var childProc *exec.Cmd = nil
+	var response []byte
+	var found bool
+	var err error
+	response, found = self.cacheGet("List.dat")
+
+	if !found {
+		childProc, err = self.Exec(append([]string{"ls", "--format=%/ai	%/an	%/aN	%/au	%/ap	%/am	%/aU	%/as	%/ag"}))
+		if err != nil {
+			log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+			return nil, err
+		}
+		response, err = childProc.CombinedOutput()
 	}
-	output, err := childProc.CombinedOutput()
 
 	fmt.Fprintf(os.Stderr, "Output:\n")
-	fmt.Fprintf(os.Stdout, "%s\n", output)
+	fmt.Fprintf(os.Stdout, "%s\n", response)
+
+	self.cachePut("List.dat", string(response))
 
 	return childProc, nil
+}
+
+func defaultUserName() string {
+	uname := os.Getenv("LPASSUSER")
+	if uname != "" {
+		return uname
+	}
+
+	childProc := exec.Command("git", "config", "--get", "user.email")
+	output, err := childProc.CombinedOutput()
+	if err == nil {
+		parts := strings.SplitN(string(output), "\n", 2)
+		return parts[0]
+	}
+
+	// ok, can't get it from git
+	return ""
+}
+
+func FileExists(path string) bool {
+	// http://stackoverflow.com/questions/10510691/how-to-check-whether-a-file-or-directory-denoted-by-a-path-exists-in-golang
+	_, err := os.Stat(path)
+
+	if err == nil {
+		return true
+	}
+
+	if os.IsNotExist(err) {
+		return false
+	}
+
+	// return true
+	return false
+}
+
+func DirExists(dname string) bool {
+	return FileExists(dname)
+}
+
+func (self *LPass) cacheGet(key string) ([]byte, bool) {
+	cfile := path.Join(self.Cachedir, key)
+
+	if FileExists(cfile) {
+		bytes, err := ioutil.ReadFile(cfile)
+		if err != nil {
+			log.Fatalf("Error reading cache file: %s for key %s : %s", cfile, key, err)
+		}
+		return bytes, true
+	}
+
+	return []byte{}, false
+}
+
+func (self *LPass) cachePut(key, value string) {
+	cfile := path.Join(self.Cachedir, key)
+	err := ioutil.WriteFile(cfile, []byte(value), 0600)
+	if err != nil {
+		log.Fatalf("Error writing cache file: %s for key %s : %s", cfile, key, err)
+	}
 }
 
 func main() {
 	// TODO: allow override with config file, override with ENV var, override with cli switch, default to env var for now
 	lpass := &LPass{
-		Username: os.Getenv("LPASSUSER"),
+		Username: defaultUserName(),
+		Cachedir: "",
 	}
 
 	app := cli.NewApp()
+	app.Name = "rlpass"
+	app.Usage = "Wrapper around lpass cli tooling"
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "username",
+			Value: defaultUserName(),
+			Usage: "Your LastPass Login name (probably your email address)",
+		},
+	}
+
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "cachedir",
+			Value: "./.rlpass/cache",
+			Usage: "Local cache directory",
+		},
+	}
+
 	// TOOD: command processor (list, find, sync-pull sync-push)
 	app.Action = func(c *cli.Context) error {
+		lpass.Username = c.String("username")
+		lpass.Cachedir = c.String("cachedir")
+
+		log.Printf("app.Action: DirExists(%s) => %q", lpass.Cachedir, DirExists(lpass.Cachedir))
+
+		if !DirExists(lpass.Cachedir) {
+			log.Printf("app.Action: creating: %s", lpass.Cachedir)
+			err := os.MkdirAll(lpass.Cachedir, 0700)
+			log.Printf("app.Action: created: dir=%s : err=%s", lpass.Cachedir, err)
+			if err != nil {
+				log.Fatalf("Error creating dir=%s : err=%s", lpass.Cachedir, err)
+			}
+		}
+
 		if len(c.Args()) < 1 {
 			lpass.Help([]string{})
 			return nil
