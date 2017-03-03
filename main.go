@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/urfave/cli"
 	"io/ioutil"
@@ -14,6 +15,21 @@ import (
 type LPass struct {
 	Username string
 	Cachedir string
+}
+
+type LPassEntry struct {
+	AccountId                string `LpassListFormat:"%ai",json:"id"`
+	AccountName              string `LpassListFormat:"%an",json:"name"`
+	AccountNameIncludingPath string `LpassListFormat:"%aN",json:"path"`
+	AccountUser              string `LpassListFormat:"%au",json:"user"`
+	AccountPassword          string `LpassListFormat:"%ap",json:"password"`
+	AccountModificationTime  string `LpassListFormat:"%am",json:"mtime"`
+	AccountLastTouchTime     string `LpassListFormat:"%aU",json:"atime"`
+	AccountShareName         string `LpassListFormat:"%as",json:"share-name"`
+	AccountGroupName         string `LpassListFormat:"%ag",json:"group-name"`
+	// NB: not sure we're going to use these
+	// FieldName                `LpassListFormat:"%fn",json:"field-name"`
+	// FieldValue               `LpassListFormat:"%fv",json:"field-value"`
 }
 
 func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
@@ -67,6 +83,100 @@ func (self *LPass) Login(args []string) (*exec.Cmd, error) {
 	return childProc, nil
 }
 
+func ParseLPassEntry(s string) *LPassEntry {
+	ent := &LPassEntry{}
+	ent.Parse(s)
+	return ent
+}
+
+func (self *LPassEntry) Parse(line string) *LPassEntry {
+	parts := strings.SplitN(line, "\t", 9)
+
+	if len(parts) < 6 {
+		panic(fmt.Sprintf("Error: expected at least 6 parts, got %d from '%s'",
+			len(parts),
+			line))
+	}
+
+	cleanedParts := make([]string, len(parts))
+
+	for idx, s := range parts {
+		cleanedParts[idx] = strings.TrimSuffix(s, "/")
+	}
+
+	self.AccountId = cleanedParts[0]
+	self.AccountName = cleanedParts[1]
+	self.AccountNameIncludingPath = cleanedParts[2]
+	self.AccountUser = cleanedParts[3]
+	self.AccountPassword = cleanedParts[4]
+	if len(cleanedParts) > 5 {
+		self.AccountModificationTime = cleanedParts[5]
+	}
+	if len(cleanedParts) > 6 {
+		self.AccountLastTouchTime = cleanedParts[6]
+	}
+	if len(cleanedParts) > 7 {
+		self.AccountShareName = cleanedParts[7]
+	}
+	if len(cleanedParts) > 8 {
+		self.AccountGroupName = cleanedParts[8]
+	}
+
+	return self
+}
+
+func (self *LPassEntry) ToArray() []string {
+	return []string{
+		self.AccountId,
+		self.AccountName,
+		self.AccountNameIncludingPath,
+		self.AccountUser,
+		self.AccountPassword,
+		self.AccountModificationTime,
+		self.AccountLastTouchTime,
+		self.AccountShareName,
+		self.AccountGroupName,
+	}
+}
+
+func (self *LPassEntry) ToString() string {
+	vals := make([]string, 0)
+
+	for _, s := range self.ToArray() {
+		if s != "" {
+			vals = append(vals, s+"/")
+		}
+	}
+
+	return strings.Join(vals, "\t")
+}
+
+func (self *LPassEntry) ToJson() []byte {
+	b, err := json.Marshal(self)
+	if err != nil {
+		panic(err)
+	}
+
+	return b
+}
+
+func ParseLPassList(s string) []*LPassEntry {
+	lines := strings.Split(s, "\n")
+
+	fmt.Fprintf(os.Stderr, "ParseLPassList: got %d lines\n", len(lines))
+
+	entries := make([]*LPassEntry, 0)
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		entries = append(entries, ParseLPassEntry(line))
+	}
+
+	return entries
+}
+
 func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	// ls --format=""
 	// TODO: add args into the cached file name (even if we sha everything)
@@ -78,7 +188,7 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	response, found = self.cacheGet("List.dat")
 
 	if !found {
-		childProc, err = self.Exec(append([]string{"ls", "--format=%/ai	%/an	%/aN	%/au	%/ap	%/am	%/aU	%/as	%/ag"}))
+		childProc, err = self.Exec(append([]string{"ls", "--format=%/ai\t%/an\t%/aN\t%/au\t%/ap\t%/am\t%/aU\t%/as\t%/ag"}))
 		if err != nil {
 			log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
 			return nil, err
@@ -86,8 +196,12 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 		response, err = childProc.CombinedOutput()
 	}
 
-	fmt.Fprintf(os.Stderr, "Output:\n")
-	fmt.Fprintf(os.Stdout, "%s\n", response)
+	entries := ParseLPassList(string(response))
+	b, err := json.Marshal(entries)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Print(string(b))
 
 	self.cachePut("List.dat", string(response))
 
@@ -184,7 +298,7 @@ func main() {
 		lpass.Username = c.String("username")
 		lpass.Cachedir = c.String("cachedir")
 
-		log.Printf("app.Action: DirExists(%s) => %q", lpass.Cachedir, DirExists(lpass.Cachedir))
+		log.Printf("app.Action: DirExists(%s) => %+v", lpass.Cachedir, DirExists(lpass.Cachedir))
 
 		if !DirExists(lpass.Cachedir) {
 			log.Printf("app.Action: creating: %s", lpass.Cachedir)
@@ -201,7 +315,7 @@ func main() {
 		}
 
 		cmd := c.Args().Get(0)
-		fmt.Printf("args: %q cmd=%s\n", c.Args(), cmd)
+		fmt.Fprintf(os.Stderr, "args: %q cmd=%s\n", c.Args(), cmd)
 
 		switch cmd {
 		case "help":

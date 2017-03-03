@@ -1,0 +1,31 @@
+TODO[init]: pre-check if lpass is installed / available in the environment
+
+
+TODO[core]: Lpass.ListToChan() emits to a channel
+TODO[core]: Lpass.Show() returns an LPassNote
+TODO[core]: 'show' command emits json
+
+TODO[core]: 'add' and 'update' commands take json as inpu
+TODO[core]: 'edit' command
+
+TODO[core]: base64 encoding of binary data <-> LPassNote
+TODO[core]: transform LPassNote -> json output
+TODO[core]: json -> LPassNote
+
+TODO[rsync]: cp -r ./local   ==> "Remote Folder"
+TODO[rsync]: "Remote Folder" ==> cp -r ./local
+
+TODO[cache]: show a PROMINENT warning if there is a local on-disk cache
+TODO[cache]: optionally cache responses for speed / offline testing
+TODO[cache]: make it easy to nuke the cache
+
+TODO[config]: support an ~/.rlpass json file
+TODO[config]: support all options from the cli
+TODO[config]: support all options from env vars
+
+TODO[core]: use struct tags for generating the --format string for 'ls'
+TODO[core]: use struct tags for both formatting & parsing the LPassEntry info
+
+TODO[core]: all functionality should support mulitple lpass accounts, support multi-tenant!
+
+DONE[core]: Lpass.List() returns an [] of LPassEntry structs
