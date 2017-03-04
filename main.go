@@ -32,6 +32,30 @@ type LPassEntry struct {
 	// FieldValue               `LpassListFormat:"%fv",json:"field-value"`
 }
 
+type StandardCredential struct {
+	Name          string
+	Owner         string
+	Description   string
+	IssuedAt      string
+	IssuedBy      string
+	IssuedTo      string
+	ExpiresAt     string
+	LastRotatedAt string
+	Usage         string
+	Help          string
+	ProjectUrl    string
+	Username      string
+	Password      string
+	Credential    string
+	Url           string
+}
+
+type LPassSecureNote struct {
+	EntryInfo  *LPassEntry
+	Properties map[string]string
+	Credential *StandardCredential
+}
+
 func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
 	// TODO: cache or otherwise remember this lookup?
 	binaryPath, err := exec.LookPath("lpass")
@@ -208,6 +232,85 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	return childProc, nil
 }
 
+func ParseShowFirstLine(s string) (*LPassEntry, error) {
+	// `(none)/tivo.com [id: 5926414273882541009]`
+	spos := strings.Index(s, "[")
+	epos := strings.LastIndex(s, "]")
+
+	if spos == -1 || epos == -1 {
+		panic(fmt.Sprintf("Error: expected show's first line to have properties, it was: '%s'", s))
+	}
+
+	accountNameIncludingPath := s[0:spos]
+	lastSlashPos := strings.LastIndex(accountNameIncludingPath, "/")
+	if lastSlashPos == -1 {
+		panic(fmt.Sprintf("Error: expected firstline to have an accountNameIncludingPath, it was: '%s'", accountNameIncludingPath))
+	}
+
+	accountName := s[0:lastSlashPos]
+
+	pairs := strings.Split(s[spos+1:epos], ", ")
+	parts := make(map[string]string)
+
+	for _, pair := range pairs {
+		kv := strings.SplitN(pair, ": ", 2)
+		parts[kv[0]] = kv[1]
+	}
+
+	ent := &LPassEntry{
+		AccountId:                parts["id"],
+		AccountName:              accountName,
+		AccountNameIncludingPath: accountNameIncludingPath,
+	}
+
+	return ent, nil
+}
+
+func ParseShow(s string) (*LPassSecureNote, error) {
+	lines := strings.Split(s, "\n")
+
+	if len(lines) < 1 {
+		panic(fmt.Sprintf("Error: expected `lpass show` output to be multiple lines, got `%s`",
+			s))
+	}
+
+	for idx, line := range lines {
+		lines[idx] = strings.TrimLeft(line, " \t\n\r")
+	}
+
+	note := &LPassSecureNote{}
+	ent, err := ParseShowFirstLine(lines[0])
+	if err != nil {
+		panic(err)
+	}
+	note.EntryInfo = ent
+
+	note.Properties = make(map[string]string)
+
+	for _, line := range lines[1:] {
+		kv := strings.SplitN(line, ": ", 2)
+		note.Properties[kv[0]] = kv[1]
+	}
+
+	note.EntryInfo = ent
+	note.Credential = &StandardCredential{
+		Username: note.Properties["Username"],
+		Password: note.Properties["Password"],
+		Url:      note.Properties["URL"],
+	}
+
+	// note.LP
+	// EntryInfo  LPassEntry
+	// Properties map[string]string
+	// Credential StandardCredential
+	return note, nil
+}
+
+func (self *LPass) Show(args []string) (*exec.Cmd, error) {
+	// lpass show --color=never --all <<id>>
+	return nil, nil
+}
+
 func defaultUserName() string {
 	uname := os.Getenv("LPASSUSER")
 	if uname != "" {
@@ -327,6 +430,10 @@ func main() {
 			lpass.List(c.Args()[1:])
 		case "ls":
 			lpass.List(c.Args()[1:])
+		case "show":
+			lpass.Show(c.Args()[1:])
+		case "cat":
+			lpass.Show(c.Args()[1:])
 		default:
 			fmt.Printf("unrecognized command: '%s'\n", cmd)
 			lpass.Help([]string{})
