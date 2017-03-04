@@ -62,6 +62,12 @@ func TestParseShowFirstLine(t *testing.T) {
 		return
 	}
 
+	if ent.AccountName != "tivo.com" {
+		t.Error(fmt.Sprintf("Error: expected ent.AccountId to be %s, got '%s'",
+			"tivo.com",
+			ent.AccountName,
+		))
+	}
 	if ent.AccountId != "5926414273882541009" {
 		t.Error(fmt.Sprintf("Error: expected ent.AccountId to be %s, got '%s'",
 			"5926414273882541009",

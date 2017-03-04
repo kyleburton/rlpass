@@ -256,7 +256,7 @@ func ParseShowFirstLine(s string) (*LPassEntry, error) {
 		panic(fmt.Sprintf("Error: expected firstline to have an accountNameIncludingPath, it was: '%s'", accountNameIncludingPath))
 	}
 
-	accountName := s[0:lastSlashPos]
+	accountName := s[lastSlashPos+1 : spos-1]
 
 	pairs := strings.Split(s[spos+1:epos], ", ")
 	parts := make(map[string]string)
