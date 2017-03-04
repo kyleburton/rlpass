@@ -184,6 +184,15 @@ func (self *LPassEntry) ToJson() []byte {
 	return b
 }
 
+func (self *LPassSecureNote) ToJson() []byte {
+	b, err := json.Marshal(self)
+	if err != nil {
+		panic(err)
+	}
+
+	return b
+}
+
 func ParseLPassList(s string) []*LPassEntry {
 	lines := strings.Split(s, "\n")
 
@@ -288,7 +297,13 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 	note.Properties = make(map[string]string)
 
 	for _, line := range lines[1:] {
+		if line == "" {
+			continue
+		}
 		kv := strings.SplitN(line, ": ", 2)
+		if len(kv) != 2 {
+			panic(fmt.Sprintf("Error parsing property, expected 2 fields, got %d from: '%s'", len(kv), line))
+		}
 		note.Properties[kv[0]] = kv[1]
 	}
 
@@ -299,15 +314,34 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 		Url:      note.Properties["URL"],
 	}
 
-	// note.LP
-	// EntryInfo  LPassEntry
-	// Properties map[string]string
-	// Credential StandardCredential
 	return note, nil
 }
 
 func (self *LPass) Show(args []string) (*exec.Cmd, error) {
 	// lpass show --color=never --all <<id>>
+	var childProc *exec.Cmd = nil
+	var response []byte
+	var err error
+
+	if len(args) != 1 {
+		panic("Error: you must supply a ID")
+	}
+
+	childProc, err = self.Exec(append([]string{"show", "--color=never", args[0]}))
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+		return nil, err
+	}
+	response, err = childProc.CombinedOutput()
+
+	secureNote, err := ParseShow(string(response))
+
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf(string(secureNote.ToJson()))
+
 	return nil, nil
 }
 
