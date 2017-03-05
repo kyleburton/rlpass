@@ -2,6 +2,8 @@ TODO[init]: pre-check if lpass is installed / available in the environment
               lpass --version
               LastPass CLI v1.1.2
 
+TODO[core]: seach / find to look for credntials
+TODO[core]: templating system.  Take into stdin a template, inject credntials into it & emit to stdout
 
 TODO[core]: Lpass.ListToChan() emits to a channel
 TODO[core]: Lpass.Show() returns an LPassNote
@@ -29,5 +31,9 @@ TODO[core]: use struct tags for generating the --format string for 'ls'
 TODO[core]: use struct tags for both formatting & parsing the LPassEntry info
 
 TODO[core]: all functionality should support mulitple lpass accounts, support multi-tenant!
+
+TODO[core]: bash command line completion
+TODO[core]: ? zsh command line completion
+
 
 DONE[core]: Lpass.List() returns an [] of LPassEntry structs

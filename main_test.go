@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -108,6 +109,42 @@ func TestParseShow(t *testing.T) {
 			note.Properties["remember_email"],
 		))
 	}
+}
+
+func TestParseShowWithNote(t *testing.T) {
+	n1 := `{"note": "this will be json to and from",
+"field": "value on a second line",
+"thing": "on a third line"}`
+
+	s1 := `Test/Test Note for Notes [id: 4281390154665116890]
+URL: http://sn
+Notes: ` + n1
+
+	note, err := ParseShow(s1)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if note == nil {
+		t.Error(fmt.Sprintf("Error: parse failed with nil?"))
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
+	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
+
+	if note.Note == "" {
+		t.Error(fmt.Sprintf("Error: failed to parse note!"))
+		return
+	}
+
+	if note.Note != n1 {
+		t.Error(fmt.Sprintf("Error: expected note:'%s', got:'%s'", n1, note.Note))
+		return
+	}
+
 }
 
 // some entropy for your needs

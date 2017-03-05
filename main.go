@@ -50,11 +50,26 @@ type StandardCredential struct {
 	Url           string
 }
 
+// type NoteObject interface{}
+
 type LPassSecureNote struct {
 	EntryInfo  *LPassEntry
 	Properties map[string]string
 	Credential *StandardCredential
+	// Note       NoteObject
+	Note string
 }
+
+// Get             => pull a *Note
+// GetString       => pull a string
+// GetInt          => pull a int
+// GetArray        => pull an array []*Note
+// GetIntArray     => pull an array []string
+// GetStringArray  => pull an array []string
+// func (self *NoteObject) Get(field string) *NoteObject {
+//   m := map[string]interface{}(self)
+//   return m[field]
+// }
 
 func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
 	// TODO: cache or otherwise remember this lookup?
@@ -93,6 +108,7 @@ func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 	return childProc, nil
 }
 
+// NB: since it uses a password reader we probably have to do an exec
 func (self *LPass) Login(args []string) (*exec.Cmd, error) {
 	childProc, err := self.Exec(append([]string{"login", "--trust", self.Username}))
 	if err != nil {
@@ -196,7 +212,7 @@ func (self *LPassSecureNote) ToJson() []byte {
 func ParseLPassList(s string) []*LPassEntry {
 	lines := strings.Split(s, "\n")
 
-	fmt.Fprintf(os.Stderr, "ParseLPassList: got %d lines\n", len(lines))
+	// fmt.Fprintf(os.Stderr, "ParseLPassList: got %d lines\n", len(lines))
 
 	entries := make([]*LPassEntry, 0)
 
@@ -296,11 +312,22 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 
 	note.Properties = make(map[string]string)
 
-	for _, line := range lines[1:] {
+	for ii, line := range lines[1:] {
 		if line == "" {
 			continue
 		}
 		kv := strings.SplitN(line, ": ", 2)
+
+		// fmt.Fprintf(os.Stderr, "ParseShow: kv[%d] %s=%s\n", ii, kv[0], kv[1])
+
+		if kv[0] == "Notes" {
+			// the value and the rest of the lines are all the note, so we just stop here
+			note.Note = kv[1] + "\n" + strings.Join(lines[(ii+2):], "\n")
+			// fmt.Fprintf(os.Stderr, "ParseShow: found note: %s\n", note.Note)
+			note.Note = strings.TrimSuffix(note.Note, "\n ")
+			break
+		}
+
 		if len(kv) != 2 {
 			panic(fmt.Sprintf("Error parsing property, expected 2 fields, got %d from: '%s'", len(kv), line))
 		}
@@ -327,7 +354,7 @@ func (self *LPass) Show(args []string) (*exec.Cmd, error) {
 		panic("Error: you must supply a ID")
 	}
 
-	childProc, err = self.Exec(append([]string{"show", "--color=never", args[0]}))
+	childProc, err = self.Exec(append([]string{"show", "--color=never", "--all", args[0]}))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
 		return nil, err
@@ -452,7 +479,7 @@ func main() {
 		}
 
 		cmd := c.Args().Get(0)
-		fmt.Fprintf(os.Stderr, "args: %q cmd=%s\n", c.Args(), cmd)
+		// fmt.Fprintf(os.Stderr, "args: %q cmd=%s\n", c.Args(), cmd)
 
 		switch cmd {
 		case "help":
