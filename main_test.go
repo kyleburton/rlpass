@@ -135,13 +135,21 @@ Notes: ` + n1
 	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
 	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
 
-	if note.Note == "" {
+	if note.RawNotes == "" {
 		t.Error(fmt.Sprintf("Error: failed to parse note!"))
 		return
 	}
 
-	if note.Note != n1 {
-		t.Error(fmt.Sprintf("Error: expected note:'%s', got:'%s'", n1, note.Note))
+	if note.RawNotes != n1 {
+		t.Error(fmt.Sprintf("Error: expected note:'%s', got:'%s'", n1, note.RawNotes))
+		return
+	}
+
+	if note.GetString("note") != "this will be json to and from" {
+		t.Error(fmt.Sprintf("Error: expected note.GetString(\"note\") to be '%s', got '%s'",
+			"this will be json to and from",
+			note.GetString("note"),
+		))
 		return
 	}
 

@@ -50,14 +50,14 @@ type StandardCredential struct {
 	Url           string
 }
 
-// type NoteObject interface{}
+type NoteObject interface{}
 
 type LPassSecureNote struct {
 	EntryInfo  *LPassEntry
 	Properties map[string]string
 	Credential *StandardCredential
-	// Note       NoteObject
-	Note string
+	Notes      NoteObject
+	RawNotes   string
 }
 
 // Get             => pull a *Note
@@ -70,6 +70,12 @@ type LPassSecureNote struct {
 //   m := map[string]interface{}(self)
 //   return m[field]
 // }
+
+func (self *LPassSecureNote) GetString(k string) string {
+	// return string(map[string]string(self.Notes)[k])
+	v := self.Notes.(map[string]interface{})[k]
+	return v.(string)
+}
 
 func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
 	// TODO: cache or otherwise remember this lookup?
@@ -192,7 +198,7 @@ func (self *LPassEntry) ToString() string {
 }
 
 func (self *LPassEntry) ToJson() []byte {
-	b, err := json.Marshal(self)
+	b, err := json.MarshalIndent(self, "", "  ")
 	if err != nil {
 		panic(err)
 	}
@@ -201,7 +207,7 @@ func (self *LPassEntry) ToJson() []byte {
 }
 
 func (self *LPassSecureNote) ToJson() []byte {
-	b, err := json.Marshal(self)
+	b, err := json.MarshalIndent(self, "", "  ")
 	if err != nil {
 		panic(err)
 	}
@@ -246,7 +252,7 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	}
 
 	entries := ParseLPassList(string(response))
-	b, err := json.Marshal(entries)
+	b, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		panic(err)
 	}
@@ -322,16 +328,23 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 
 		if kv[0] == "Notes" {
 			// the value and the rest of the lines are all the note, so we just stop here
-			note.Note = kv[1] + "\n" + strings.Join(lines[(ii+2):], "\n")
-			// fmt.Fprintf(os.Stderr, "ParseShow: found note: %s\n", note.Note)
-			note.Note = strings.TrimSuffix(note.Note, "\n ")
+			note.RawNotes = kv[1] + "\n" + strings.Join(lines[(ii+2):], "\n")
+			note.RawNotes = strings.TrimSuffix(note.RawNotes, "\n ")
 			break
 		}
 
 		if len(kv) != 2 {
 			panic(fmt.Sprintf("Error parsing property, expected 2 fields, got %d from: '%s'", len(kv), line))
 		}
+
 		note.Properties[kv[0]] = kv[1]
+	}
+
+	if note.RawNotes != "" {
+		err = json.Unmarshal([]byte(note.RawNotes), &note.Notes)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	note.EntryInfo = ent
@@ -368,6 +381,29 @@ func (self *LPass) Show(args []string) (*exec.Cmd, error) {
 	}
 
 	fmt.Printf(string(secureNote.ToJson()))
+
+	return nil, nil
+}
+
+func (self *LPass) Spec(args []string) (*exec.Cmd, error) {
+	note := &LPassSecureNote{}
+	note.EntryInfo = &LPassEntry{}
+	note.Credential = &StandardCredential{}
+	note.Properties = map[string]string{
+		"_properties": "don't fill this in, it'll be ignored",
+	}
+	note.Notes = map[string]string{
+		"_full-monty-here": "this should match your standard cred",
+	}
+	note.RawNotes = "this is ignored"
+	data, err := json.MarshalIndent(note, "", "  ")
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf(string(data))
+	fmt.Printf("\n")
 
 	return nil, nil
 }
@@ -457,50 +493,83 @@ func main() {
 		},
 	}
 
+	app.Commands = []cli.Command{
+		{
+			Name:    "help",
+			Aliases: []string{"h"},
+			Usage:   "show this help",
+			Action: func(c *cli.Context) error {
+				lpass.Help(c.Args())
+				return nil
+			},
+		},
+		/*
+		   {
+		     Name: "login",
+		     Aliases: []string{"l"},
+		     Usage: "shell out to lpass to login",
+		     Action: func(c *cli.Context) error {
+		       lpass.Login(c.Args())
+		       return nil
+		     },
+		   },
+		*/
+		{
+			Name:    "list",
+			Aliases: []string{"ls"},
+			Usage:   "list your lastpass credentials, emits json",
+			Action: func(c *cli.Context) error {
+				lpass.List(c.Args())
+				return nil
+			},
+		},
+		{
+			Name:    "show",
+			Aliases: []string{"cat"},
+			Usage:   "show a json formatted credential",
+			Action: func(c *cli.Context) error {
+				lpass.Show(c.Args())
+				return nil
+			},
+		},
+		{
+			Name:    "spec",
+			Aliases: []string{"cat"},
+			Usage:   "json template for a secret note",
+			Action: func(c *cli.Context) error {
+				lpass.Spec(c.Args())
+				return nil
+			},
+		},
+	}
+
+  app.Before = func(c *cli.Context) error {
+    lpass.Username = c.String("username")
+    lpass.Cachedir = c.String("cachedir")
+
+    if !DirExists(lpass.Cachedir) {
+      log.Printf("app.Action: creating: %s", lpass.Cachedir)
+      err := os.MkdirAll(lpass.Cachedir, 0700)
+      log.Printf("app.Action: created: dir=%s : err=%s", lpass.Cachedir, err)
+      if err != nil {
+        log.Fatalf("Error creating dir=%s : err=%s", lpass.Cachedir, err)
+      }
+    }
+    return nil
+  }
+
 	// TOOD: command processor (list, find, sync-pull sync-push)
-	app.Action = func(c *cli.Context) error {
-		lpass.Username = c.String("username")
-		lpass.Cachedir = c.String("cachedir")
+	/*
+		app.Action = func(c *cli.Context) error {
 
-		log.Printf("app.Action: DirExists(%s) => %+v", lpass.Cachedir, DirExists(lpass.Cachedir))
-
-		if !DirExists(lpass.Cachedir) {
-			log.Printf("app.Action: creating: %s", lpass.Cachedir)
-			err := os.MkdirAll(lpass.Cachedir, 0700)
-			log.Printf("app.Action: created: dir=%s : err=%s", lpass.Cachedir, err)
-			if err != nil {
-				log.Fatalf("Error creating dir=%s : err=%s", lpass.Cachedir, err)
+			if len(c.Args()) < 1 {
+				lpass.Help([]string{})
+				return nil
 			}
-		}
 
-		if len(c.Args()) < 1 {
-			lpass.Help([]string{})
 			return nil
 		}
-
-		cmd := c.Args().Get(0)
-		// fmt.Fprintf(os.Stderr, "args: %q cmd=%s\n", c.Args(), cmd)
-
-		switch cmd {
-		case "help":
-			lpass.Help(c.Args()[1:])
-		case "login":
-			fmt.Printf("is login\n")
-			lpass.Login(c.Args()[1:])
-		case "list":
-			lpass.List(c.Args()[1:])
-		case "ls":
-			lpass.List(c.Args()[1:])
-		case "show":
-			lpass.Show(c.Args()[1:])
-		case "cat":
-			lpass.Show(c.Args()[1:])
-		default:
-			fmt.Printf("unrecognized command: '%s'\n", cmd)
-			lpass.Help([]string{})
-		}
-		return nil
-	}
+	*/
 	app.Run(os.Args)
 
 	// lpass.Login()
