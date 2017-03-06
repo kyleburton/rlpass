@@ -2,7 +2,6 @@ TODO[init]: pre-check if lpass is installed / available in the environment
               lpass --version
               LastPass CLI v1.1.2
 
-TODO[core]: Lpass.Show() returns an LPassNote
 TODO[core]: 'add' and 'update' commands take json as input
 TODO[core]: 'edit' command
 
@@ -10,8 +9,6 @@ TODO[core]: templating system.  Take into stdin a template, inject credntials in
 
 
 TODO[core]: base64 encoding of binary data <-> LPassNote
-TODO[core]: transform LPassNote -> json output
-TODO[core]: json -> LPassNote
 
 TODO[rsync]: cp -r ./local   ==> "Remote Folder"
 TODO[rsync]: "Remote Folder" ==> cp -r ./local
@@ -34,5 +31,10 @@ TODO[core]: use struct tags for both formatting & parsing the LPassEntry info
 TODO[core]: Lpass.ListToChan() emits to a channel
 
 
+
+
 DONE[core]: Lpass.List() returns an [] of LPassEntry structs
+DONE[core]: Lpass.Show() returns an LPassNote
 DONE[core]: 'show' command emits json
+DONE[core]: transform LPassNote -> json output
+DONE[core]: json -> LPassNote
