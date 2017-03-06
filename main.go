@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -18,18 +19,18 @@ type LPass struct {
 }
 
 type LPassEntry struct {
-	AccountId                string `LpassListFormat:"%ai",json:"id"`
-	AccountName              string `LpassListFormat:"%an",json:"name"`
-	AccountNameIncludingPath string `LpassListFormat:"%aN",json:"path"`
-	AccountUser              string `LpassListFormat:"%au",json:"user"`
-	AccountPassword          string `LpassListFormat:"%ap",json:"password"`
-	AccountModificationTime  string `LpassListFormat:"%am",json:"mtime"`
-	AccountLastTouchTime     string `LpassListFormat:"%aU",json:"atime"`
-	AccountShareName         string `LpassListFormat:"%as",json:"share-name"`
-	AccountGroupName         string `LpassListFormat:"%ag",json:"group-name"`
+	AccountId                string `LPassListFormat:"%ai",json:"id"`
+	AccountName              string `LPassListFormat:"%an",json:"name"`
+	AccountNameIncludingPath string `LPassListFormat:"%aN",json:"path"`
+	AccountUser              string `LPassListFormat:"%au",json:"user"`
+	AccountPassword          string `LPassListFormat:"%ap",json:"password"`
+	AccountModificationTime  string `LPassListFormat:"%am",json:"mtime"`
+	AccountLastTouchTime     string `LPassListFormat:"%aU",json:"atime"`
+	AccountShareName         string `LPassListFormat:"%as",json:"share-name"`
+	AccountGroupName         string `LPassListFormat:"%ag",json:"group-name"`
 	// NB: not sure we're going to use these
-	// FieldName                `LpassListFormat:"%fn",json:"field-name"`
-	// FieldValue               `LpassListFormat:"%fv",json:"field-value"`
+	// FieldName                `LPassListFormat:"%fn",json:"field-name"`
+	// FieldValue               `LPassListFormat:"%fv",json:"field-value"`
 }
 
 type StandardCredential struct {
@@ -83,7 +84,7 @@ func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
 
 	if err != nil {
 		// TODO: log / output the error
-		log.Fatal(fmt.Sprintf("Lpass: Error: unable to find the lpass binary: %s\n", err.Error()))
+		log.Fatal(fmt.Sprintf("LPass: Error: unable to find the lpass binary: %s\n", err.Error()))
 		return nil, err
 	}
 
@@ -97,7 +98,7 @@ func (self *LPass) Exec(args []string) (*exec.Cmd, error) {
 func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 	childProc, err := self.Exec([]string{"help"})
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
 		return nil, err
 	}
 
@@ -107,7 +108,7 @@ func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 	fmt.Fprintf(os.Stdout, "%s\n", output)
 	// NB: unfortunately returns a 1 from help, which we'll need to disregard
 	// if err != nil {
-	// 	log.Fatal(fmt.Sprintf("Lpass: Error: getting output from help returned an error: %s\n", err.Error()))
+	// 	log.Fatal(fmt.Sprintf("LPass: Error: getting output from help returned an error: %s\n", err.Error()))
 	// 	return nil, err
 	// }
 
@@ -118,7 +119,7 @@ func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 func (self *LPass) Login(args []string) (*exec.Cmd, error) {
 	childProc, err := self.Exec(append([]string{"login", "--trust", self.Username}))
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
 		return nil, err
 	}
 	output, err := childProc.CombinedOutput()
@@ -206,6 +207,16 @@ func (self *LPassEntry) ToJson() []byte {
 	return b
 }
 
+func (self *LPassEntry) ToPath(prefix string) string {
+  reg, err := regexp.Compile("[^\\.-_/A-Za-z0-9]")
+  if err != nil {
+    panic(err)
+  }
+
+  pathed_name := reg.ReplaceAllString(self.AccountNameIncludingPath, "-")
+	return path.Join(prefix, pathed_name, "credential.json")
+}
+
 func (self *LPassSecureNote) ToJson() []byte {
 	b, err := json.MarshalIndent(self, "", "  ")
 	if err != nil {
@@ -245,7 +256,7 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	if !found {
 		childProc, err = self.Exec(append([]string{"ls", "--format=%/ai\t%/an\t%/aN\t%/au\t%/ap\t%/am\t%/aU\t%/as\t%/ag"}))
 		if err != nil {
-			log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+			log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
 			return nil, err
 		}
 		response, err = childProc.CombinedOutput()
@@ -272,20 +283,20 @@ func ParseShowFirstLine(s string) (*LPassEntry, error) {
 		panic(fmt.Sprintf("Error: expected show's first line to have properties, it was: '%s'", s))
 	}
 
-	accountNameIncludingPath := s[0:spos]
+	accountNameIncludingPath := strings.Trim(s[0:spos], " \t\r\n")
 	lastSlashPos := strings.LastIndex(accountNameIncludingPath, "/")
 	if lastSlashPos == -1 {
 		panic(fmt.Sprintf("Error: expected firstline to have an accountNameIncludingPath, it was: '%s'", accountNameIncludingPath))
 	}
 
-	accountName := s[lastSlashPos+1 : spos-1]
+	accountName := strings.Trim(s[lastSlashPos+1 : spos-1], " \t\r\n")
 
 	pairs := strings.Split(s[spos+1:epos], ", ")
 	parts := make(map[string]string)
 
 	for _, pair := range pairs {
 		kv := strings.SplitN(pair, ": ", 2)
-		parts[kv[0]] = kv[1]
+		parts[kv[0]] = strings.Trim(kv[1], " \t\r\n")
 	}
 
 	ent := &LPassEntry{
@@ -337,7 +348,7 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 			panic(fmt.Sprintf("Error parsing property, expected 2 fields, got %d from: '%s'", len(kv), line))
 		}
 
-		note.Properties[kv[0]] = kv[1]
+		note.Properties[kv[0]] = strings.Trim(kv[1], " \t\r\n")
 	}
 
 	if note.RawNotes != "" {
@@ -369,7 +380,7 @@ func (self *LPass) Show(args []string) (*exec.Cmd, error) {
 
 	childProc, err = self.Exec(append([]string{"show", "--color=never", "--all", args[0]}))
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Lpass: Error: executing help returned an error: %s\n", err.Error()))
+		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
 		return nil, err
 	}
 	response, err = childProc.CombinedOutput()
@@ -543,20 +554,20 @@ func main() {
 		},
 	}
 
-  app.Before = func(c *cli.Context) error {
-    lpass.Username = c.String("username")
-    lpass.Cachedir = c.String("cachedir")
+	app.Before = func(c *cli.Context) error {
+		lpass.Username = c.String("username")
+		lpass.Cachedir = c.String("cachedir")
 
-    if !DirExists(lpass.Cachedir) {
-      log.Printf("app.Action: creating: %s", lpass.Cachedir)
-      err := os.MkdirAll(lpass.Cachedir, 0700)
-      log.Printf("app.Action: created: dir=%s : err=%s", lpass.Cachedir, err)
-      if err != nil {
-        log.Fatalf("Error creating dir=%s : err=%s", lpass.Cachedir, err)
-      }
-    }
-    return nil
-  }
+		if !DirExists(lpass.Cachedir) {
+			log.Printf("app.Action: creating: %s", lpass.Cachedir)
+			err := os.MkdirAll(lpass.Cachedir, 0700)
+			log.Printf("app.Action: created: dir=%s : err=%s", lpass.Cachedir, err)
+			if err != nil {
+				log.Fatalf("Error creating dir=%s : err=%s", lpass.Cachedir, err)
+			}
+		}
+		return nil
+	}
 
 	// TOOD: command processor (list, find, sync-pull sync-push)
 	/*

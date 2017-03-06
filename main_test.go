@@ -181,3 +181,37 @@ for x in $(seq 100); do echo -n $RANDOM; done | fold -w 22  | head -n -1
 2921956165454513309301
 
 */
+
+func TestSecureNoteToPath(t *testing.T) {
+	s1 := `(streaming-services)/tivo.com [id: 5926414273882541009]
+	Username: me@some.where
+	Password: 1402931102206281341285
+	URL: https://www.tivo.com
+	cams_cb_username: me@some.where
+	cams_cb_password: 1402931102206281341285
+	remember_email: Checked`
+
+	note, err := ParseShow(s1)
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if note == nil {
+		t.Error(fmt.Sprintf("Error: parse failed with nil?"))
+		return
+	}
+
+	p := note.EntryInfo.ToPath("credentials")
+	expected_path := "credentials/-streaming-services-/tivo.com/credential.json"
+
+	if p != expected_path {
+		t.Error(fmt.Sprintf("Error: EntryInfo.ToPath: expected '%s', got '%s' from '%s'",
+			expected_path,
+			p,
+			note.EntryInfo.AccountNameIncludingPath,
+		))
+		return
+	}
+}

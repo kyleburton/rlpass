@@ -8,6 +8,7 @@ Examples
 
 
 ```
+go test *.to
 go run main.go ls | jq -C . | less
 go run main.go show 6919840240772558827686 | jq -C . | less
 ```
