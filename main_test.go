@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"testing"
 )
 
@@ -132,9 +131,6 @@ Notes: ` + n1
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
-	fmt.Fprintf(os.Stderr, "TestParseShowWithNote: note:%a", note)
-
 	if note.RawNotes == "" {
 		t.Error(fmt.Sprintf("Error: failed to parse note!"))
 		return
@@ -181,6 +177,18 @@ for x in $(seq 100); do echo -n $RANDOM; done | fold -w 22  | head -n -1
 2921956165454513309301
 
 */
+
+func TestScrubPathOfSpecialCharacters(t *testing.T) {
+	s1 := "kyle.burton@gmail.com/somesite.com"
+	e1 := "kyle.burton-gmail.com/somesite.com"
+	a1 := ScrubPathOfSpecialCharacters(s1)
+	if e1 != a1 {
+		t.Error(fmt.Sprintf("Error: expected ScrubPathOfSpecialCharacters(%s) to be '%s', got '%s'",
+			s1, e1, a1,
+		))
+		return
+	}
+}
 
 func TestSecureNoteToPath(t *testing.T) {
 	s1 := `(streaming-services)/tivo.com [id: 5926414273882541009]

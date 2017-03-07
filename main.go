@@ -9,14 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 )
 
 type LPass struct {
-	Username string
-	Cachedir string
+	Username          string
+	CredentialsFolder string
+	Cachedir          string
 }
 
 type LPassEntry struct {
@@ -217,13 +219,13 @@ func (self *LPassEntry) ToJson() []byte {
 	return b
 }
 
-func (self *LPassEntry) ToPath(prefix string) string {
-	reg, err := regexp.Compile("[^\\.-_/A-Za-z0-9]")
-	if err != nil {
-		panic(err)
-	}
+func ScrubPathOfSpecialCharacters(s string) string {
+	reg := regexp.MustCompile("[^\\.\\-_/A-Za-z0-9]")
+	return string(reg.ReplaceAll([]byte(s), []byte("-")))
+}
 
-	pathed_name := reg.ReplaceAllString(self.AccountNameIncludingPath, "-")
+func (self *LPassEntry) ToPath(prefix string) string {
+	pathed_name := ScrubPathOfSpecialCharacters(self.AccountNameIncludingPath)
 	return path.Join(prefix, pathed_name, "credential.json")
 }
 
@@ -386,7 +388,7 @@ func (self *LPass) Show(args []string) (*exec.Cmd, error) {
 	var err error
 
 	if len(args) != 1 {
-		panic("Error: you must supply a ID")
+		return nil, fmt.Errorf("Error: you must supply a ID")
 	}
 
 	childProc, err = self.Exec(append([]string{"show", "--color=never", "--all", args[0]}))
@@ -426,6 +428,57 @@ func (self *LPass) Spec(args []string) (*exec.Cmd, error) {
 
 	fmt.Printf(string(data))
 	fmt.Printf("\n")
+
+	return nil, nil
+}
+
+// TODO: make the parent directories for the file if they don't exist
+func (self *LPassSecureNote) WriteJsonToFile(fname string) error {
+	dname := filepath.Dir(fname)
+
+	if _, err := os.Stat(dname); !os.IsNotExist(err) {
+		return err
+	}
+
+	err := os.MkdirAll(dname, 0700)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(fname, self.ToJson(), 0600)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (self *LPass) Fetch(args []string) (*exec.Cmd, error) {
+	if len(args) < 1 {
+		return nil, fmt.Errorf("You must supply a credential to fetch by id or full path and name.")
+	}
+
+	childProc, err := self.Exec(append([]string{"show", "--color=never", "--all", args[0]}))
+	if err != nil {
+		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
+		return nil, err
+	}
+	response, err := childProc.CombinedOutput()
+
+	secureNote, err := ParseShow(string(response))
+
+	if err != nil {
+		return nil, err
+	}
+
+	fname := secureNote.EntryInfo.ToPath(self.CredentialsFolder)
+	fmt.Printf("Fetch: saving cred[%s|%s] to: %s\n",
+		secureNote.EntryInfo.AccountId,
+		secureNote.EntryInfo.AccountNameIncludingPath,
+		fname,
+	)
+
+	secureNote.WriteJsonToFile(fname)
 
 	return nil, nil
 }
@@ -493,7 +546,7 @@ func main() {
 	// TODO: allow override with config file, override with ENV var, override with cli switch, default to env var for now
 	lpass := &LPass{
 		Username: defaultUserName(),
-		Cachedir: "",
+		Cachedir: "./.rlpass/cache",
 	}
 
 	app := cli.NewApp()
@@ -501,6 +554,11 @@ func main() {
 	app.Usage = "Wrapper around lpass cli tooling"
 
 	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "credentialsFolder",
+			Value: "credentials",
+			Usage: "The local folder for downloading and uploading credentials",
+		},
 		cli.StringFlag{
 			Name:  "username",
 			Value: defaultUserName(),
@@ -559,11 +617,20 @@ func main() {
 				return nil
 			},
 		},
+		{
+			Name:  "fetch",
+			Usage: "Fetch and save a credential to the local file system.",
+			Action: func(c *cli.Context) error {
+				lpass.Fetch(c.Args())
+				return nil
+			},
+		},
 	}
 
 	app.Before = func(c *cli.Context) error {
 		lpass.Username = c.String("username")
 		lpass.Cachedir = c.String("cachedir")
+		lpass.CredentialsFolder = c.String("credentialsFolder")
 
 		if !DirExists(lpass.Cachedir) {
 			log.Printf("app.Action: creating: %s", lpass.Cachedir)
