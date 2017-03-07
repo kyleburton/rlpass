@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"testing"
 )
 
@@ -74,6 +75,26 @@ func TestParseShowFirstLine(t *testing.T) {
 			ent.AccountId,
 		))
 	}
+}
+
+func TestParseShowFirstLineNoFolder(t *testing.T) {
+	s1 := `some site with no folder [id: 2921956165454513309301]`
+	e1 := "some site with no folder"
+
+	ent, err := ParseShowFirstLine(s1)
+	if err != nil {
+		t.Error("Error, ParseShowFirstLine failed, returned nil")
+		return
+	}
+
+	if ent.AccountName != e1 {
+		t.Errorf("Error: expected AccountName='%s' from '%s', got:'%a'",
+			e1,
+			s1,
+			ent,
+		)
+	}
+
 }
 
 func TestParseShow(t *testing.T) {
@@ -173,8 +194,6 @@ for x in $(seq 100); do echo -n $RANDOM; done | fold -w 22  | head -n -1
 8822875345567225535814
 2981998125642284791856
 2970212852089724074555
-2360023450475626742225
-2921956165454513309301
 
 */
 
@@ -221,5 +240,39 @@ func TestSecureNoteToPath(t *testing.T) {
 			note.EntryInfo.AccountNameIncludingPath,
 		))
 		return
+	}
+}
+
+func TestParseShowWithCertificate(t *testing.T) {
+	fixture_file := "fixtures/show/note-with-certificate.out"
+	data, err := ioutil.ReadFile(fixture_file)
+
+	if err != nil {
+		t.Errorf("Error reading fixture file '%s' : %s", fixture_file, err)
+		return
+	}
+
+	note, err := ParseShow(string(data))
+
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if note == nil {
+		t.Error(fmt.Sprintf("Error: parse failed with nil?"))
+		return
+	}
+
+	val, ok := note.Properties["Certificate"]
+	if !ok {
+		t.Error(fmt.Sprintf("Error: did not parse Certificate out of '%s'", fixture_file))
+	}
+
+	if len(val) < 1 {
+		t.Errorf("Error: Certificate (expected len>0, was %d) not parsed out of '%s'",
+			fixture_file,
+			len(val),
+		)
 	}
 }

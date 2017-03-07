@@ -1,3 +1,4 @@
+TODO[core]: remove the return of (exec.Cmd*, error) from all the functions, that didn't happen
 TODO[init]: pre-check if lpass is installed / available in the environment
               lpass --version
               LastPass CLI v1.1.2

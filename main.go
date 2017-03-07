@@ -64,17 +64,6 @@ type LPassSecureNote struct {
 	RawNotes   string
 }
 
-// Get             => pull a *Note
-// GetString       => pull a string
-// GetInt          => pull a int
-// GetArray        => pull an array []*Note
-// GetIntArray     => pull an array []string
-// GetStringArray  => pull an array []string
-// func (self *NoteObject) Get(field string) *NoteObject {
-//   m := map[string]interface{}(self)
-//   return m[field]
-// }
-
 func (self *LPassSecureNote) GetString(k string) string {
 	// return string(map[string]string(self.Notes)[k])
 	v := self.Notes.(map[string]interface{})[k]
@@ -255,7 +244,7 @@ func ParseLPassList(s string) []*LPassEntry {
 	return entries
 }
 
-func (self *LPass) List(args []string) (*exec.Cmd, error) {
+func (self *LPass) GetList(args []string) ([]*LPassEntry, error) {
 	// ls --format=""
 	// TODO: add args into the cached file name (even if we sha everything)
 	// TODO: need support for turning this off & on
@@ -263,6 +252,7 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 	var response []byte
 	var found bool
 	var err error
+	// TODO: only if caching is enabled
 	response, found = self.cacheGet("List.dat")
 
 	if !found {
@@ -274,16 +264,25 @@ func (self *LPass) List(args []string) (*exec.Cmd, error) {
 		response, err = childProc.CombinedOutput()
 	}
 
+	// TODO: only if caching is enabled
 	entries := ParseLPassList(string(response))
+	self.cachePut("List.dat", string(response))
+	return entries, nil
+}
+
+func (self *LPass) List(args []string) (*exec.Cmd, error) {
+	entries, err := self.GetList(args)
+	if err != nil {
+		panic(err)
+	}
+
 	b, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		panic(err)
 	}
 	fmt.Print(string(b))
 
-	self.cachePut("List.dat", string(response))
-
-	return childProc, nil
+	return nil, nil
 }
 
 func ParseShowFirstLine(s string) (*LPassEntry, error) {
@@ -297,11 +296,12 @@ func ParseShowFirstLine(s string) (*LPassEntry, error) {
 
 	accountNameIncludingPath := strings.Trim(s[0:spos], " \t\r\n")
 	lastSlashPos := strings.LastIndex(accountNameIncludingPath, "/")
-	if lastSlashPos == -1 {
-		panic(fmt.Sprintf("Error: expected firstline to have an accountNameIncludingPath, it was: '%s'", accountNameIncludingPath))
+	var accountName string
+	if lastSlashPos != -1 {
+		accountName = strings.Trim(s[lastSlashPos+1:spos-1], " \t\r\n")
+	} else {
+		accountName = strings.Trim(s[0:spos-1], " \t\r\n")
 	}
-
-	accountName := strings.Trim(s[lastSlashPos+1:spos-1], " \t\r\n")
 
 	pairs := strings.Split(s[spos+1:epos], ", ")
 	parts := make(map[string]string)
@@ -318,6 +318,27 @@ func ParseShowFirstLine(s string) (*LPassEntry, error) {
 	}
 
 	return ent, nil
+}
+
+// NB: end_marker is a prefix
+func ParseMultlineField(start_line int, lines []string, end_marker string) (next_line int, val string) {
+	found_end := false
+	var end_line int
+	for end_line = start_line; end_line < len(lines); end_line++ {
+		if strings.HasPrefix(lines[end_line], end_marker) {
+			found_end = true
+			break
+		}
+	}
+
+	if !found_end {
+		panic(fmt.Sprintf("ParseMultlineField: Error: unable to find end marker[%s] before last line.  start line was '%s'",
+			end_marker,
+			lines[start_line],
+		))
+	}
+
+	return end_line, strings.Join(lines[start_line:end_line], "\n")
 }
 
 func ParseShow(s string) (*LPassSecureNote, error) {
@@ -341,7 +362,8 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 
 	note.Properties = make(map[string]string)
 
-	for ii, line := range lines[1:] {
+	for ii := 1; ii < len(lines); ii++ {
+		line := lines[ii]
 		if line == "" {
 			continue
 		}
@@ -349,11 +371,29 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 
 		// fmt.Fprintf(os.Stderr, "ParseShow: kv[%d] %s=%s\n", ii, kv[0], kv[1])
 
+		// NB: Notes always seems to be the last item, so we'll just accumulate the remaining lines
 		if kv[0] == "Notes" {
 			// the value and the rest of the lines are all the note, so we just stop here
-			note.RawNotes = kv[1] + "\n" + strings.Join(lines[(ii+2):], "\n")
+			note.RawNotes = kv[1] + "\n" + strings.Join(lines[(ii+1):], "\n")
 			note.RawNotes = strings.TrimSuffix(note.RawNotes, "\n ")
 			break
+		}
+
+		// Certificate is a block of line:
+		if kv[0] == "Certificate" && strings.Contains(lines[ii], "-----BEGIN ") {
+			ii, note.Properties[kv[0]] = ParseMultlineField(ii, lines, "-----END CERTIFICATE-----")
+			continue
+		}
+
+		// Private Key may be oneline or multi, if it has "-----BEGIN " in the line it's multiline
+		if kv[0] == "Private Key" && strings.Contains(lines[ii], "-----BEGIN ") {
+			ii, note.Properties[kv[0]] = ParseMultlineField(ii, lines, "-----END ")
+			continue
+		}
+
+		if kv[0] == "Public Key" && strings.Contains(lines[ii], "-----BEGIN ") {
+			ii, note.Properties[kv[0]] = ParseMultlineField(ii, lines, "-----END ")
+			continue
 		}
 
 		if len(kv) != 2 {
@@ -453,12 +493,8 @@ func (self *LPassSecureNote) WriteJsonToFile(fname string) error {
 	return nil
 }
 
-func (self *LPass) Fetch(args []string) (*exec.Cmd, error) {
-	if len(args) < 1 {
-		return nil, fmt.Errorf("You must supply a credential to fetch by id or full path and name.")
-	}
-
-	childProc, err := self.Exec(append([]string{"show", "--color=never", "--all", args[0]}))
+func (self *LPass) GetSecureNote(id_or_name string) (*LPassSecureNote, error) {
+	childProc, err := self.Exec(append([]string{"show", "--color=never", "--all", id_or_name}))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
 		return nil, err
@@ -466,6 +502,16 @@ func (self *LPass) Fetch(args []string) (*exec.Cmd, error) {
 	response, err := childProc.CombinedOutput()
 
 	secureNote, err := ParseShow(string(response))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return secureNote, nil
+}
+
+func (self *LPass) Fetch(args []string) (*exec.Cmd, error) {
+	secureNote, err := self.GetSecureNote(args[0])
 
 	if err != nil {
 		return nil, err
@@ -480,6 +526,27 @@ func (self *LPass) Fetch(args []string) (*exec.Cmd, error) {
 
 	secureNote.WriteJsonToFile(fname)
 
+	return nil, nil
+}
+
+func (self *LPass) SyncToLocal(args []string) (*exec.Cmd, error) {
+	// HERE HERE HERE
+	entries, err := self.GetList(args)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Saving off %d entries...\n", len(entries))
+	for _, entry := range entries {
+		note, err := self.GetSecureNote(entry.AccountId)
+		if err != nil {
+			panic(err)
+		}
+		fname := note.EntryInfo.ToPath(self.CredentialsFolder)
+		note.WriteJsonToFile(fname)
+		fmt.Printf("  %s\n", fname)
+	}
+	fmt.Printf("done.")
 	return nil, nil
 }
 
@@ -622,6 +689,14 @@ func main() {
 			Usage: "Fetch and save a credential to the local file system.",
 			Action: func(c *cli.Context) error {
 				lpass.Fetch(c.Args())
+				return nil
+			},
+		},
+		{
+			Name:  "sync-down",
+			Usage: "Pull all credentials into the local file system",
+			Action: func(c *cli.Context) error {
+				lpass.SyncToLocal(c.Args())
 				return nil
 			},
 		},

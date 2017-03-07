@@ -16,3 +16,10 @@ go run main.go show 6919840240772558827686 | jq -C . | less
 ```
 go run mian.go spec
 ```
+
+
+Q: Why not just `lpass export --color=never`?
+
+A: Though this allows for bulk export, it does not preserve the fidelity of the information stored in lastpass.
+
+https://github.com/lastpass/lastpass-cli/issues/263
