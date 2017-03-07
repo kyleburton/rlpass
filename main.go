@@ -11,6 +11,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 type LPass struct {
@@ -106,7 +107,7 @@ func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 
 	fmt.Fprintf(os.Stderr, "Output:\n")
 	fmt.Fprintf(os.Stdout, "%s\n", output)
-	// NB: unfortunately returns a 1 from help, which we'll need to disregard
+	// NB: unfortunately lpass returns a 1 from help, which we'll need to disregard
 	// if err != nil {
 	// 	log.Fatal(fmt.Sprintf("LPass: Error: getting output from help returned an error: %s\n", err.Error()))
 	// 	return nil, err
@@ -117,17 +118,26 @@ func (self *LPass) Help(args []string) (*exec.Cmd, error) {
 
 // NB: since it uses a password reader we probably have to do an exec
 func (self *LPass) Login(args []string) (*exec.Cmd, error) {
-	childProc, err := self.Exec(append([]string{"login", "--trust", self.Username}))
-	if err != nil {
-		log.Fatal(fmt.Sprintf("LPass: Error: executing help returned an error: %s\n", err.Error()))
-		return nil, err
+	if self.Username == "" {
+		panic("Error: you have to set your lastpass username!")
 	}
-	output, err := childProc.CombinedOutput()
 
-	fmt.Fprintf(os.Stderr, "Output:\n")
-	fmt.Fprintf(os.Stdout, "%s\n", output)
+	binaryPath, err := exec.LookPath("lpass")
+	if err != nil {
+		panic(err)
+	}
 
-	return childProc, nil
+	argv := []string{binaryPath, "login", "--trust", self.Username}
+	env := os.Environ()
+	fmt.Printf("Executing: %s\n", argv)
+	err = syscall.Exec(binaryPath, argv, env)
+	if err != nil {
+		panic(err)
+	}
+
+	panic("WHOAH, it shouldn't be possible to get here!")
+
+	return nil, nil
 }
 
 func ParseLPassEntry(s string) *LPassEntry {
@@ -208,12 +218,12 @@ func (self *LPassEntry) ToJson() []byte {
 }
 
 func (self *LPassEntry) ToPath(prefix string) string {
-  reg, err := regexp.Compile("[^\\.-_/A-Za-z0-9]")
-  if err != nil {
-    panic(err)
-  }
+	reg, err := regexp.Compile("[^\\.-_/A-Za-z0-9]")
+	if err != nil {
+		panic(err)
+	}
 
-  pathed_name := reg.ReplaceAllString(self.AccountNameIncludingPath, "-")
+	pathed_name := reg.ReplaceAllString(self.AccountNameIncludingPath, "-")
 	return path.Join(prefix, pathed_name, "credential.json")
 }
 
@@ -289,7 +299,7 @@ func ParseShowFirstLine(s string) (*LPassEntry, error) {
 		panic(fmt.Sprintf("Error: expected firstline to have an accountNameIncludingPath, it was: '%s'", accountNameIncludingPath))
 	}
 
-	accountName := strings.Trim(s[lastSlashPos+1 : spos-1], " \t\r\n")
+	accountName := strings.Trim(s[lastSlashPos+1:spos-1], " \t\r\n")
 
 	pairs := strings.Split(s[spos+1:epos], ", ")
 	parts := make(map[string]string)
@@ -354,7 +364,8 @@ func ParseShow(s string) (*LPassSecureNote, error) {
 	if note.RawNotes != "" {
 		err = json.Unmarshal([]byte(note.RawNotes), &note.Notes)
 		if err != nil {
-			panic(err)
+			fmt.Fprintf(os.Stderr, "Error deserializing Notes json, see the contents of RawNotes: %s\n", err)
+			json.Unmarshal([]byte("{}"), &note.Notes)
 		}
 	}
 
@@ -488,15 +499,13 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "rlpass"
 	app.Usage = "Wrapper around lpass cli tooling"
+
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "username",
 			Value: defaultUserName(),
 			Usage: "Your LastPass Login name (probably your email address)",
 		},
-	}
-
-	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "cachedir",
 			Value: "./.rlpass/cache",
@@ -514,17 +523,15 @@ func main() {
 				return nil
 			},
 		},
-		/*
-		   {
-		     Name: "login",
-		     Aliases: []string{"l"},
-		     Usage: "shell out to lpass to login",
-		     Action: func(c *cli.Context) error {
-		       lpass.Login(c.Args())
-		       return nil
-		     },
-		   },
-		*/
+		{
+			Name:    "login",
+			Aliases: []string{"l"},
+			Usage:   "shell out to lpass to login",
+			Action: func(c *cli.Context) error {
+				lpass.Login(c.Args())
+				return nil
+			},
+		},
 		{
 			Name:    "list",
 			Aliases: []string{"ls"},
@@ -569,20 +576,5 @@ func main() {
 		return nil
 	}
 
-	// TOOD: command processor (list, find, sync-pull sync-push)
-	/*
-		app.Action = func(c *cli.Context) error {
-
-			if len(c.Args()) < 1 {
-				lpass.Help([]string{})
-				return nil
-			}
-
-			return nil
-		}
-	*/
 	app.Run(os.Args)
-
-	// lpass.Login()
-	// lpass.Help()
 }
